@@ -61,27 +61,38 @@ stages:
 
           # Test Claude Code by asking it to respond with "OK"
           - script: |
+              set -e
               echo "Testing Claude Code connection..."
 
-              # Run Claude Code with a simple prompt
-              response=$(claude -p --dangerously-skip-permissions "Please respond with only the word 'OK' and nothing else.")
+              # Run Claude Code with a simple prompt (using same pattern as quick-fix.yml)
+              # - </dev/null prevents waiting for stdin
+              # - timeout ensures we don't hang forever
+              # - CI env vars disable interactive mode
+              timeout 60 claude --output-format stream-json --verbose --dangerously-skip-permissions \
+                "Please respond with only the word 'OK' and nothing else." \
+                </dev/null 2>&1 | tee $(Agent.TempDirectory)/claude-output.txt || true
 
-              echo "Claude Code response: $response"
+              echo "----------------------------------------"
+              echo "Claude Code output:"
+              cat $(Agent.TempDirectory)/claude-output.txt
+              echo "----------------------------------------"
 
               # Check if response contains "OK"
-              if echo "$response" | grep -qi "OK"; then
+              if grep -qi "OK" $(Agent.TempDirectory)/claude-output.txt; then
                 echo "##[section]✓ Claude Code is working correctly!"
                 echo "##[section]Usage window started at $(date)"
                 echo "##[section]Window will reset at 12pm EST / 1pm EDT"
                 exit 0
               else
                 echo "##[error]✗ Claude Code did not respond with 'OK'"
-                echo "##[error]Response was: $response"
+                echo "##[error]See output above for details"
                 exit 1
               fi
             displayName: 'Test Claude Code - Expect OK Response'
             env:
               ANTHROPIC_API_KEY: $(ANTHROPIC_API_KEY)
+              CI: 'true'
+              CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
 
           # Summary
           - script: |
