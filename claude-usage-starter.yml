@@ -64,7 +64,7 @@ stages:
               echo "Testing Claude Code connection..."
 
               # Run Claude Code with a simple prompt
-              response=$(claude --dangerously-skip-permissions "Please respond with only the word 'OK' and nothing else.")
+              response=$(claude -p --dangerously-skip-permissions "Please respond with only the word 'OK' and nothing else.")
 
               echo "Claude Code response: $response"
 
