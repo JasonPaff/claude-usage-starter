@@ -1,0 +1,33 @@
+# Final report
+# Shows summary of the workflow execution
+
+parameters:
+  - name: workflowType
+    type: string
+  - name: workItemId
+    type: string
+  - name: targetRepo
+    type: string
+  - name: azureDevOpsOrg
+    type: string
+  - name: azureDevOpsProject
+    type: string
+  - name: githubOwner
+    type: string
+
+steps:
+  - script: |
+      echo "========================================"
+      echo "AI Workflow Complete"
+      echo "========================================"
+      echo "Workflow Type: ${{ parameters.workflowType }}"
+      echo "Work Item ID: ${{ parameters.workItemId }}"
+      echo "Target Repo: ${{ parameters.targetRepo }}"
+      echo ""
+
+      if [ -f "$(Agent.TempDirectory)/claude-output.txt" ]; then
+        echo "Claude Output Summary (last 50 lines):"
+        tail -50 $(Agent.TempDirectory)/claude-output.txt
+      fi
+    displayName: 'Report results'
+    condition: always()

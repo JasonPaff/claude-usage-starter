@@ -1,0 +1,28 @@
+# Checkout repositories
+# Checks out config repo and clones target repo from GitHub
+
+parameters:
+  - name: targetRepo
+    type: string
+  - name: githubOwner
+    type: string
+
+steps:
+  # Checkout this repo (claude-planner-config) which contains the config
+  - checkout: self
+    path: s/config
+
+  # Checkout target repo from GitHub
+  - script: |
+      set -e
+      echo "Cloning target repository from GitHub..."
+      echo "Target path: $(targetRepoPath)"
+      git clone https://$(GITHUB_PAT)@github.com/${{ parameters.githubOwner }}/${{ parameters.targetRepo }}.git $(targetRepoPath)
+      cd $(targetRepoPath)
+      git config user.email "ai-pipeline@azure.com"
+      git config user.name "AI Pipeline"
+      echo "Clone successful. Contents:"
+      ls -la
+    displayName: 'Checkout target repo (GitHub)'
+    env:
+      GITHUB_PAT: $(GITHUB_PAT)

@@ -1,0 +1,62 @@
+# Environment setup
+# Installs Node.js, Claude Code CLI, and copies .claude config
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: $(nodeVersion)
+    displayName: 'Install Node.js'
+
+  # Install Claude Code CLI
+  - script: |
+      echo "Installing Claude Code CLI..."
+      npm install -g @anthropic-ai/claude-code
+      claude --version
+    displayName: 'Install Claude Code CLI'
+
+  # Download and configure Claude OAuth credentials
+  - task: DownloadSecureFile@1
+    name: claudeCredentials
+    inputs:
+      secureFile: '.credentials.json'
+    displayName: 'Download Claude OAuth Credentials'
+
+  - script: |
+      echo "Setting up Claude OAuth credentials..."
+      mkdir -p ~/.claude
+      cp $(claudeCredentials.secureFilePath) ~/.claude/.credentials.json
+      chmod 600 ~/.claude/.credentials.json
+      echo "Claude credentials configured at ~/.claude/.credentials.json"
+    displayName: 'Configure Claude OAuth Credentials'
+
+  # Copy .claude config into target repo
+  - script: |
+      set -e
+      echo "Copying .claude config to target repo..."
+      echo "Source: $(configRepoPath)/.claude"
+      echo "Target: $(targetRepoPath)/"
+
+      # Debug: list source directory
+      echo "Contents of config repo:"
+      ls -la $(configRepoPath)/
+
+      if [ ! -d "$(configRepoPath)/.claude" ]; then
+        echo "##[error].claude folder not found in config repo at $(configRepoPath)/.claude"
+        echo "Make sure .claude is committed and pushed to this repository"
+        exit 1
+      fi
+
+      # Check target directory exists
+      if [ ! -d "$(targetRepoPath)" ]; then
+        echo "##[error]Target repo directory not found at $(targetRepoPath)"
+        echo "The git clone step may have failed"
+        exit 1
+      fi
+
+      echo "Target repo contents before copy:"
+      ls -la $(targetRepoPath)/
+
+      cp -rv $(configRepoPath)/.claude $(targetRepoPath)/
+      echo "Copy completed. Verifying:"
+      ls -la $(targetRepoPath)/.claude/
+    displayName: 'Copy .claude config to target repo'

@@ -1,0 +1,68 @@
+# Plan workflow
+# Generates an implementation plan and saves it to docs/
+
+steps:
+  - script: |
+      set -e
+      source $(Agent.TempDirectory)/work-item.env
+
+      cd $(targetRepoPath)
+
+      echo "Running Claude Code plan-feature..."
+      echo "Feature: $WORK_ITEM_TITLE"
+
+      # Build the full feature context with all available fields
+      PLAN_INPUT="$WORK_ITEM_TITLE"
+      if [ -n "$WORK_ITEM_DESCRIPTION" ]; then
+        PLAN_INPUT="$PLAN_INPUT - Description: $WORK_ITEM_DESCRIPTION"
+      fi
+      if [ -n "$WORK_ITEM_ACCEPTANCE_CRITERIA" ]; then
+        PLAN_INPUT="$PLAN_INPUT - Acceptance Criteria: $WORK_ITEM_ACCEPTANCE_CRITERIA"
+      fi
+
+      echo "Full prompt: /plan-feature \"$PLAN_INPUT\""
+      echo "Starting Claude Code at: $(date -Iseconds)"
+
+      # Run plan-feature command (timeout configured in variables.yml)
+      chmod +x $(configRepoPath)/scripts/stream-processor.sh
+      set +e
+      timeout $(planTimeout) claude --output-format stream-json --verbose --dangerously-skip-permissions \
+        "/plan-feature \"$PLAN_INPUT\"" </dev/null 2>&1 | \
+        tee $(Agent.TempDirectory)/raw-stream.jsonl | \
+        $(configRepoPath)/scripts/stream-processor.sh | \
+        tee $(Agent.TempDirectory)/claude-output.txt
+      CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
+      set -e
+
+      echo "Claude Code finished at: $(date -Iseconds)"
+      echo "Claude exit code: $CLAUDE_EXIT_CODE"
+
+      if [ $CLAUDE_EXIT_CODE -eq 124 ]; then
+        echo "##[error]Claude Code timed out after $(planTimeout) seconds"
+        echo "Last 50 lines of output:"
+        tail -50 $(Agent.TempDirectory)/claude-output.txt || true
+        exit 1
+      elif [ $CLAUDE_EXIT_CODE -ne 0 ]; then
+        echo "##[error]Claude Code failed with exit code $CLAUDE_EXIT_CODE"
+        cat $(Agent.TempDirectory)/claude-output.txt || true
+        exit 1
+      fi
+
+      # Find the generated plan file
+      PLAN_FILE=$(find $(targetRepoPath)/docs -name "*-implementation-plan.md" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+
+      if [ -n "$PLAN_FILE" ]; then
+        echo "Found plan file: $PLAN_FILE"
+        cp "$PLAN_FILE" $(Agent.TempDirectory)/implementation-plan.md
+        echo "##vso[task.setvariable variable=PLAN_FILE]$PLAN_FILE"
+      else
+        echo "##[error]No plan file generated"
+        echo "Checking docs directory:"
+        find $(targetRepoPath)/docs -type f -name "*.md" 2>/dev/null | head -20 || echo "No markdown files found"
+        exit 1
+      fi
+    displayName: 'Run Claude Code /plan-feature'
+    env:
+      ANTHROPIC_API_KEY: $(ANTHROPIC_API_KEY)
+      CI: 'true'
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'

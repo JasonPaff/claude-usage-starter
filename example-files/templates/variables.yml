@@ -1,0 +1,26 @@
+# Shared variables for AI Pipeline
+# Used by: azure-pipelines.yml
+
+variables:
+  - group: AI # Contains ANTHROPIC_API_KEY and GITHUB_PAT
+  - name: targetRepoPath
+    value: '$(Build.SourcesDirectory)/target'
+  - name: configRepoPath
+    value: '$(Build.SourcesDirectory)'
+  - name: nodeVersion
+    value: '20.x'
+  - name: BAIL_OUT
+    value: 'false'
+  - name: NO_CHANGES
+    value: 'false'
+  # Note: azureDevOpsOrg, azureDevOpsProject, and githubOwner
+  # are now required pipeline parameters (no defaults)
+  # Workflow timeout settings (in seconds)
+  - name: quickFixTimeout
+    value: '600'      # 10 minutes - quick fixes should be fast
+  - name: planTimeout
+    value: '1800'     # 30 minutes - planning involves multiple steps
+  - name: implementTimeout
+    value: '3600'     # 60 minutes - implementation can be lengthy
+  - name: specialistTimeout
+    value: '600'      # 10 minutes - per-step specialist timeout

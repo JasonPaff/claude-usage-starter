@@ -1,0 +1,35 @@
+# Fetch work item context from Azure DevOps
+
+parameters:
+  - name: workItemId
+    type: string
+  - name: azureDevOpsOrg
+    type: string
+  - name: azureDevOpsProject
+    type: string
+
+steps:
+  - script: |
+      echo "Fetching work item details..."
+      chmod +x $(configRepoPath)/scripts/fetch-work-item.sh
+      $(configRepoPath)/scripts/fetch-work-item.sh \
+        "${{ parameters.workItemId }}" \
+        "$(System.AccessToken)" \
+        "$(Agent.TempDirectory)/work-item.json"
+
+      # Parse and export work item fields
+      TITLE=$(jq -r '.fields["System.Title"]' $(Agent.TempDirectory)/work-item.json)
+      DESCRIPTION=$(jq -r '.fields["System.Description"] // ""' $(Agent.TempDirectory)/work-item.json | sed 's/<[^>]*>//g')
+      ACCEPTANCE_CRITERIA=$(jq -r '.fields["Microsoft.VSTS.Common.AcceptanceCriteria"] // ""' $(Agent.TempDirectory)/work-item.json | sed 's/<[^>]*>//g')
+
+      echo "Work Item: $TITLE"
+
+      # Save to environment file for subsequent steps
+      # Escape any existing double quotes in values, then wrap in quotes
+      echo "WORK_ITEM_TITLE=\"${TITLE//\"/\\\"}\"" >> $(Agent.TempDirectory)/work-item.env
+      echo "WORK_ITEM_DESCRIPTION=\"${DESCRIPTION//\"/\\\"}\"" >> $(Agent.TempDirectory)/work-item.env
+      echo "WORK_ITEM_ACCEPTANCE_CRITERIA=\"${ACCEPTANCE_CRITERIA//\"/\\\"}\"" >> $(Agent.TempDirectory)/work-item.env
+    displayName: 'Fetch work item details'
+    env:
+      AZURE_DEVOPS_ORG: ${{ parameters.azureDevOpsOrg }}
+      AZURE_DEVOPS_PROJECT: ${{ parameters.azureDevOpsProject }}

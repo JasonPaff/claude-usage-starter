@@ -1,0 +1,109 @@
+# Claude Code diagnostics
+# Verifies API connectivity and CLI functionality before running workflows
+
+parameters:
+  - name: workflowType
+    type: string
+
+steps:
+  - script: |
+      set -e
+
+      cd $(targetRepoPath)
+
+      echo "========================================"
+      echo "Claude Code Diagnostics"
+      echo "========================================"
+
+      # Check authentication methods
+      OAUTH_CONFIGURED=false
+      API_KEY_CONFIGURED=false
+
+      # Check for OAuth credentials
+      if [ -f ~/.claude/.credentials.json ]; then
+        echo "OAuth credentials: FOUND at ~/.claude/.credentials.json"
+        OAUTH_CONFIGURED=true
+      else
+        echo "OAuth credentials: NOT FOUND"
+      fi
+
+      # Check for API key fallback (show first/last 4 chars only)
+      if [ -n "$ANTHROPIC_API_KEY" ]; then
+        API_KEY_PREVIEW="${ANTHROPIC_API_KEY:0:4}...${ANTHROPIC_API_KEY: -4}"
+        echo "API Key fallback: $API_KEY_PREVIEW"
+        API_KEY_CONFIGURED=true
+      else
+        echo "API Key fallback: NOT SET"
+      fi
+
+      # Ensure at least one auth method is available
+      if [ "$OAUTH_CONFIGURED" = false ] && [ "$API_KEY_CONFIGURED" = false ]; then
+        echo "##[error]No authentication configured! Need OAuth credentials or ANTHROPIC_API_KEY"
+        exit 1
+      fi
+
+      # Show working directory and .claude config
+      echo "Working directory: $(pwd)"
+      echo ".claude config:"
+      ls -la .claude/ 2>/dev/null | head -5 || echo "  NOT FOUND"
+
+      # Test raw API connectivity (only if API key is configured)
+      if [ "$API_KEY_CONFIGURED" = true ]; then
+        echo ""
+        echo "Testing raw API connectivity to api.anthropic.com..."
+        set +e
+        API_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+          --max-time 10 \
+          -X POST \
+          -H "Content-Type: application/json" \
+          -H "x-api-key: $ANTHROPIC_API_KEY" \
+          -H "anthropic-version: 2023-06-01" \
+          https://api.anthropic.com/v1/messages \
+          -d '{"model":"claude-sonnet-4-20250514","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}' 2>&1)
+        CURL_EXIT=$?
+        set -e
+        HTTP_CODE=$(echo "$API_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+        echo "Curl exit code: $CURL_EXIT, HTTP status: $HTTP_CODE"
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "Raw API test: SUCCESS"
+        elif [ "$HTTP_CODE" = "401" ]; then
+          echo "##[error]Raw API test: AUTHENTICATION FAILED - API key may be invalid"
+          echo "Response: $(echo "$API_RESPONSE" | head -5)"
+          exit 1
+        elif [ "$HTTP_CODE" = "400" ]; then
+          echo "Raw API test: OK (400 expected for minimal test payload)"
+        else
+          echo "##[warning]Raw API test: HTTP $HTTP_CODE"
+          echo "Response: $(echo "$API_RESPONSE" | head -10)"
+        fi
+      else
+        echo ""
+        echo "Skipping raw API test (using OAuth credentials)"
+      fi
+
+      # Test Claude CLI connectivity
+      echo ""
+      echo "Testing Claude Code CLI connectivity..."
+      set +e
+      timeout 30 claude --print --dangerously-skip-permissions "Respond with only the word OK" </dev/null 2>&1
+      TEST_EXIT=$?
+      set -e
+      if [ $TEST_EXIT -eq 124 ]; then
+        echo "##[error]Claude CLI connectivity test timed out after 30 seconds"
+        exit 1
+      elif [ $TEST_EXIT -ne 0 ]; then
+        echo "##[error]Claude CLI connectivity test failed with code $TEST_EXIT"
+        exit 1
+      else
+        echo "Claude CLI connectivity test: PASSED"
+      fi
+
+      echo ""
+      echo "========================================"
+      echo "All diagnostics passed - proceeding with ${{ parameters.workflowType }} workflow"
+      echo "========================================"
+    displayName: 'Claude Code Diagnostics'
+    env:
+      ANTHROPIC_API_KEY: $(ANTHROPIC_API_KEY)
+      CI: 'true'
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'

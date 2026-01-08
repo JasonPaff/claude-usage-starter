@@ -1,0 +1,23 @@
+# Attach implementation plan to work item
+# Used by plan workflow
+
+parameters:
+  - name: workItemId
+    type: string
+  - name: azureDevOpsOrg
+    type: string
+  - name: azureDevOpsProject
+    type: string
+
+steps:
+  - script: |
+      chmod +x $(configRepoPath)/scripts/attach-plan.sh
+      chmod +x $(configRepoPath)/scripts/add-work-item-comment.sh
+      $(configRepoPath)/scripts/attach-plan.sh \
+        "${{ parameters.workItemId }}" \
+        "$(Agent.TempDirectory)/implementation-plan.md" \
+        "$(System.AccessToken)"
+    displayName: 'Attach plan to work item'
+    env:
+      AZURE_DEVOPS_ORG: ${{ parameters.azureDevOpsOrg }}
+      AZURE_DEVOPS_PROJECT: ${{ parameters.azureDevOpsProject }}

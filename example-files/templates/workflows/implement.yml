@@ -1,0 +1,106 @@
+# Implement workflow
+# Downloads plan from work item and executes it
+
+parameters:
+  - name: workItemId
+    type: string
+  - name: azureDevOpsOrg
+    type: string
+  - name: azureDevOpsProject
+    type: string
+
+steps:
+  # Download implementation plan from work item attachment
+  - script: |
+      set -e
+
+      echo "Downloading implementation plan from work item..."
+
+      # Source shared functions for URL encoding
+      source $(configRepoPath)/scripts/shared-functions.sh
+      init_azure_defaults
+
+      # Fetch attachments from work item
+      ATTACHMENTS_URL="${API_BASE}/wit/workitems/${{ parameters.workItemId }}?api-version=7.0&\$expand=relations"
+
+      HTTP_STATUS=$(curl -s -w "%{http_code}" -o $(Agent.TempDirectory)/work-item-full.json \
+        -H "Authorization: Bearer $(System.AccessToken)" \
+        "$ATTACHMENTS_URL")
+
+      if ! validate_http_status "$HTTP_STATUS" "200" "Fetch work item with relations"; then
+        echo "Response body:"
+        cat $(Agent.TempDirectory)/work-item-full.json
+        exit 1
+      fi
+
+      if ! validate_json "$(Agent.TempDirectory)/work-item-full.json" "work item response"; then
+        exit 1
+      fi
+
+      # Find and download the plan attachment
+      PLAN_URL=$(jq -r '.relations[]? | select(.rel == "AttachedFile") | select(.attributes.name | contains("implementation-plan")) | .url' $(Agent.TempDirectory)/work-item-full.json | head -1)
+
+      if [ -z "$PLAN_URL" ] || [ "$PLAN_URL" == "null" ]; then
+        echo "##vso[task.logissue type=error]No implementation plan attachment found on work item"
+        exit 1
+      fi
+
+      echo "Downloading plan from: $PLAN_URL"
+      curl -s -H "Authorization: Bearer $(System.AccessToken)" "$PLAN_URL" \
+        -o $(Agent.TempDirectory)/implementation-plan.md
+
+      # Copy plan to target repo for Claude to read
+      cp $(Agent.TempDirectory)/implementation-plan.md $(targetRepoPath)/implementation-plan.md
+    displayName: 'Download implementation plan'
+    env:
+      AZURE_DEVOPS_ORG: ${{ parameters.azureDevOpsOrg }}
+      AZURE_DEVOPS_PROJECT: ${{ parameters.azureDevOpsProject }}
+
+  # Execute the implementation plan
+  - script: |
+      set -e
+      source $(Agent.TempDirectory)/work-item.env
+
+      cd $(targetRepoPath)
+
+      echo "Running Claude Code implement-plan..."
+
+      # Build work item context for additional reference
+      WORK_ITEM_CONTEXT="Work Item: $WORK_ITEM_TITLE"
+      if [ -n "$WORK_ITEM_DESCRIPTION" ]; then
+        WORK_ITEM_CONTEXT="$WORK_ITEM_CONTEXT - Description: $WORK_ITEM_DESCRIPTION"
+      fi
+      if [ -n "$WORK_ITEM_ACCEPTANCE_CRITERIA" ]; then
+        WORK_ITEM_CONTEXT="$WORK_ITEM_CONTEXT - Acceptance Criteria: $WORK_ITEM_ACCEPTANCE_CRITERIA"
+      fi
+
+      echo "Work item context: $WORK_ITEM_CONTEXT"
+
+      # Run implement-plan command (timeout configured in variables.yml)
+      # Use stream-json for real-time output, pipe through processor for milestone detection
+      chmod +x $(configRepoPath)/scripts/stream-processor.sh
+      set +e
+      PROMPT=$(printf '/implement-plan implementation-plan.md\n\n%s' "$WORK_ITEM_CONTEXT")
+      timeout $(implementTimeout) claude --output-format stream-json --verbose --dangerously-skip-permissions \
+        "$PROMPT" </dev/null 2>&1 | \
+        tee $(Agent.TempDirectory)/raw-stream.jsonl | \
+        $(configRepoPath)/scripts/stream-processor.sh | \
+        tee $(Agent.TempDirectory)/claude-output.txt
+      CLAUDE_EXIT_CODE=${PIPESTATUS[0]}
+      set -e
+
+      echo "Claude exit code: $CLAUDE_EXIT_CODE"
+      cat $(Agent.TempDirectory)/claude-output.txt
+
+      # Clean up the plan file (don't commit it)
+      rm -f $(targetRepoPath)/implementation-plan.md
+
+      if [ $CLAUDE_EXIT_CODE -ne 0 ]; then
+        echo "##[error]Claude Code failed with exit code $CLAUDE_EXIT_CODE"
+        exit 1
+      fi
+    displayName: 'Run Claude Code /implement-plan'
+    env:
+      ANTHROPIC_API_KEY: $(ANTHROPIC_API_KEY)
+      CI: 'true'
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
