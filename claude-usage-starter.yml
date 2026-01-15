@@ -1,15 +1,22 @@
 # Claude Code Usage Window Starter Pipeline
-# Purpose: Starts Claude Code usage window at 7am Eastern to reset at 12pm
-# Runs Monday-Friday at 7am EST (12:00 UTC) / 7am EDT (11:00 UTC)
+# Purpose: Starts Claude Code usage window at 7am and 12:01pm Eastern
+# Runs Monday-Friday at 7am EST (12:00 UTC) and 12:01pm EST (17:01 UTC)
 
 trigger: none # No CI triggers
 
-# Schedule: 7am Eastern, Monday through Friday
-# Note: Azure Pipelines uses UTC. Adjust between 11:00 (EDT) and 12:00 (EST) as needed
-# Current setting: 12:00 UTC = 7am EST (winter) / 8am EDT (summer)
+# Schedule: 7am and 12:01pm Eastern, Monday through Friday
+# Note: Azure Pipelines uses UTC. Adjust for EDT/EST as needed
+# 12:00 UTC = 7am EST (winter) / 8am EDT (summer)
+# 17:01 UTC = 12:01pm EST (winter) / 1:01pm EDT (summer)
 schedules:
   - cron: "0 12 * * Mon-Fri"
     displayName: 'Daily 7am EST usage window starter'
+    branches:
+      include:
+        - main
+    always: true # Run even if no code changes
+  - cron: "1 17 * * Mon-Fri"
+    displayName: 'Daily 12:01pm EST usage window starter'
     branches:
       include:
         - main
